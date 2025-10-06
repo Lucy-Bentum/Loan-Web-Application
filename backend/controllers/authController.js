@@ -4,18 +4,41 @@ const { sendTokenResponse, verifyRefreshToken, generateToken } = require('../uti
 const { generateOTP, generateToken: genToken, hashToken } = require('../utils/generateOTP');
 const { sendOTPEmail, sendWelcomeEmail } = require('../utils/emailService');
 
+
+
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, password, dateOfBirth, address } = req.body;
+    const { 
+      firstName, 
+      lastName, 
+      email, 
+      phone, 
+      password, 
+      confirmPassword,
+      occupation,
+      monthlySalary,
+      ghanaCardNumber,
+      votersIdNumber,
+      dateOfBirth, 
+      address 
+    } = req.body;
 
-    // Validate input
-    if (!firstName || !lastName || !email || !phone || !password) {
+    // Validate required input
+    if (!firstName || !lastName || !email || !phone || !password || !confirmPassword) {
       return res.status(400).json({
         success: false,
         message: 'Please provide all required fields'
+      });
+    }
+
+    // Validate password confirmation
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Passwords do not match'
       });
     }
 
@@ -45,16 +68,59 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Check if user exists
-    const [existingUsers] = await promisePool.query(
-      'SELECT id FROM users WHERE email = ? OR phone = ?',
-      [email, phone]
-    );
+    // Validate Ghana Card Number format (if provided)
+    if (ghanaCardNumber) {
+      const ghanaCardRegex = /^GHA-[0-9]{9}-[0-9]$/;
+      if (!ghanaCardRegex.test(ghanaCardNumber)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid Ghana Card Number (format: GHA-XXXXXXXXX-X)'
+        });
+      }
+    }
+
+    // Validate Voters ID Number format (if provided)
+    if (votersIdNumber) {
+      const votersIdRegex = /^[0-9]{10}$/;
+      if (!votersIdRegex.test(votersIdNumber)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid Voters ID Number (10 digits)'
+        });
+      }
+    }
+
+    // Validate monthly salary (if provided)
+    if (monthlySalary) {
+      const salary = parseFloat(monthlySalary);
+      if (isNaN(salary) || salary < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid monthly salary amount'
+        });
+      }
+    }
+
+    // Check if user exists (including Ghana Card and Voters ID)
+    let existingQuery = 'SELECT id FROM users WHERE email = ? OR phone = ?';
+    let existingParams = [email, phone];
+
+    if (ghanaCardNumber) {
+      existingQuery += ' OR ghana_card_number = ?';
+      existingParams.push(ghanaCardNumber);
+    }
+
+    if (votersIdNumber) {
+      existingQuery += ' OR voters_id_number = ?';
+      existingParams.push(votersIdNumber);
+    }
+
+    const [existingUsers] = await promisePool.query(existingQuery, existingParams);
 
     if (existingUsers.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email or phone number already exists'
+        message: 'User with this email, phone number, Ghana Card, or Voters ID already exists'
       });
     }
 
@@ -69,9 +135,24 @@ exports.register = async (req, res) => {
     // Insert user into database
     const [result] = await promisePool.query(
       `INSERT INTO users (first_name, last_name, email, phone, password_hash, 
-       email_verification_token, phone_verification_token, date_of_birth, address) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [firstName, lastName, email, phone, passwordHash, emailToken, phoneToken, dateOfBirth || null, address || null]
+       email_verification_token, phone_verification_token, date_of_birth, address,
+       occupation, monthly_salary, ghana_card_number, voters_id_number) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        firstName, 
+        lastName, 
+        email, 
+        phone, 
+        passwordHash, 
+        emailToken, 
+        phoneToken, 
+        dateOfBirth || null, 
+        address || null,
+        occupation || null,
+        monthlySalary ? parseFloat(monthlySalary) : null,
+        ghanaCardNumber || null,
+        votersIdNumber || null
+      ]
     );
 
     // Get the created user
@@ -256,7 +337,8 @@ exports.getMe = async (req, res) => {
     const [users] = await promisePool.query(
       `SELECT id, first_name, last_name, email, phone, role, status, 
        is_email_verified, is_phone_verified, profile_image, address, 
-       date_of_birth, id_number, created_at, last_login 
+       date_of_birth, id_number, occupation, monthly_salary, 
+       ghana_card_number, voters_id_number, created_at, last_login 
        FROM users WHERE id = ?`,
       [req.user.id]
     );
@@ -279,7 +361,18 @@ exports.getMe = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, phone, address, dateOfBirth, idNumber } = req.body;
+    const { 
+      firstName, 
+      lastName, 
+      phone, 
+      address, 
+      dateOfBirth, 
+      idNumber,
+      occupation,
+      monthlySalary,
+      ghanaCardNumber,
+      votersIdNumber
+    } = req.body;
 
     const fieldsToUpdate = {};
     if (firstName) fieldsToUpdate.first_name = firstName;
@@ -288,6 +381,10 @@ exports.updateProfile = async (req, res) => {
     if (address) fieldsToUpdate.address = address;
     if (dateOfBirth) fieldsToUpdate.date_of_birth = dateOfBirth;
     if (idNumber) fieldsToUpdate.id_number = idNumber;
+    if (occupation) fieldsToUpdate.occupation = occupation;
+    if (monthlySalary) fieldsToUpdate.monthly_salary = parseFloat(monthlySalary);
+    if (ghanaCardNumber) fieldsToUpdate.ghana_card_number = ghanaCardNumber;
+    if (votersIdNumber) fieldsToUpdate.voters_id_number = votersIdNumber;
 
     if (Object.keys(fieldsToUpdate).length === 0) {
       return res.status(400).json({
@@ -308,7 +405,8 @@ exports.updateProfile = async (req, res) => {
     const [users] = await promisePool.query(
       `SELECT id, first_name, last_name, email, phone, role, status, 
        is_email_verified, is_phone_verified, profile_image, address, 
-       date_of_birth, id_number FROM users WHERE id = ?`,
+       date_of_birth, id_number, occupation, monthly_salary, 
+       ghana_card_number, voters_id_number FROM users WHERE id = ?`,
       [req.user.id]
     );
 

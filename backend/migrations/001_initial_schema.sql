@@ -1,18 +1,5 @@
--- Database Schema for Loan Web Application
--- Run this SQL script to create the database and tables
-
--- TABLES CREATED:
--- users
--- loans
--- payments
--- notifications
--- admin_logs
-
--- TABLES NOT CREATED:
--- admin_users
--- user_documents
--- user_addresses
--- user_bank_accounts
+-- Migration 001: Initial Database Schema
+-- This script creates the initial database structure
 
 -- Create Database
 CREATE DATABASE IF NOT EXISTS loan_app_db;
@@ -130,8 +117,14 @@ CREATE TABLE IF NOT EXISTS admin_logs (
   INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Create default admin user (password: Admin@123)
--- Password hash for 'Admin@123' with bcrypt
-INSERT INTO users (first_name, last_name, email, phone, password_hash, role, is_email_verified, is_phone_verified, status)
-VALUES ('Admin', 'User', 'admin@loanapp.com', '+233500000000', '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36zL6F7j5A.5LU4hB0Z7DJe', 'admin', TRUE, TRUE, 'active');
+-- Migration tracking table
+CREATE TABLE IF NOT EXISTS migrations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  migration_name VARCHAR(255) NOT NULL UNIQUE,
+  executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_migration_name (migration_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Insert migration record
+INSERT INTO migrations (migration_name) VALUES ('001_initial_schema') 
+ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP;
